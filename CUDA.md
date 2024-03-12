@@ -178,7 +178,7 @@ int main() {
 }
 ```
 
-## Buborék rendezés + szimpla szorzás
+## Futószalag rendezés + szimpla szorzás
 
 ```
 
