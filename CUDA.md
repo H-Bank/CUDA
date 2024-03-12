@@ -10,7 +10,17 @@ Ezek kellenek, hogy tudjunk GPU-re programot írni.
 #include "device_launch_parameters.h"
 #include <stdio.h>
 ```
-## Tárolók
+
+## konstans értékek
+
+Lehet konstans értékeket beállítani, amikre később lehet hivatkozni:
+```
+#define N 5000
+#define BLOCK_SIZE 500
+#define BLOCK 10
+```
+
+## Fg és tárolók elhelyezkedése, létrehozása
 
 Ezzel lehet a CPU-ra tömböt létrehozni: (CSAK A CPU-n létezik!)
 ```
@@ -26,6 +36,12 @@ Ezzel az előtaggal lehet olyan függvényt létrehozni, amit CPU-n és GPU-n is
 ```
 __global__ void fg() { }
 ```
+
+A GPU blokkon belül vannak még memória, ahova át lehet helyezni adatokat, de csak Globális fg-ben lehet rájuk hivatkozni:
+```
+_shared__ int shr_A[5];
+```
+
 ## GPU indexek
 
 Az adott blokkban a száll index lekérése: (Ez csak a blokkos indexet adja meg majd, más szóval ebből lehet több is, mivel több blokkot is futatthatunk majd)
@@ -33,6 +49,22 @@ Az adott blokkban a száll index lekérése: (Ez csak a blokkos indexet adja meg
 int i = threadIdx.x;
 ```
 
+Az adott blokk indexét adja vissza amiben van:
+```
+int i = blockIdx.x;
+```
+
+Az adott blokk hosszát adja vissza:
+```
+int i = blockDim.x;
+```
+
+## Szállak bevárása
+
+Meg lehet oldani, hogy a szállak bevárják egymást és ami után minden száll ugyan ott van, csak akkor lépjenek tovább.
+```
+__syncthreads();
+```
 ## Main metódus
 
 CPU-ról GPU-ra másolni az adatok így lehet:
@@ -143,5 +175,112 @@ int main() {
 	cudaMemcpyFromSymbol(&szo, &dev_szo, m);
 	cudaMemcpyFromSymbol(&hol, &dev_hol, sizeof(int));
 	printf("%d", hol);
+}
+```
+
+## Buborék rendezés + szimpla szorzás
+
+```
+
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
+#include <stdio.h>
+
+#define N 5000
+#define BLOCK_SIZE 500
+#define BLOCK 10
+
+int A[N];
+
+__device__ int dev_A[N];
+
+__global__ void Multiply() //simple multiply
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    dev_A[i] *= 2;
+}
+
+__global__ void OneBlockSort()
+{
+    for (int i = 1; i <= N/2; i++)
+    {
+        for (int shift = 0; shift <= 1; shift++)
+        {
+            int chk = 2 * threadIdx.x - shift;
+            if ((threadIdx.x > 0 || shift != 1) && dev_A[chk] > dev_A[chk + 1])
+            {
+                int temp = dev_A[chk];
+                dev_A[chk] = dev_A[chk + 1];
+                dev_A[chk + 1] = temp;
+            }
+            __syncthreads();
+        }
+    }
+}
+
+__global__ void MultipleBlockSort()
+{
+    for (int i = 1; i <= blockDim.x; i++)
+    {
+        for (int shift = 0; shift <= 1; shift++)
+        {
+            int chk = 2 * (blockIdx.x * blockDim.x + threadIdx.x) - shift;
+            if ((threadIdx.x > 0 || shift != 1) && dev_A[chk] > dev_A[chk + 1])
+            {
+                int temp = dev_A[chk];
+                dev_A[chk] = dev_A[chk + 1];
+                dev_A[chk + 1] = temp;
+            }
+            __syncthreads();
+        }
+    }
+}
+
+__global__ void MultipleBlockSortWithShare()
+{
+    __shared__ int shr_A[BLOCK_SIZE * 2];
+    shr_A[2 * threadIdx.x] = dev_A[(blockIdx.x * blockDim.x + threadIdx.x) * 2];
+    shr_A[2 * threadIdx.x + 1] = dev_A[(blockIdx.x * blockDim.x + threadIdx.x) * 2 + 1];
+    __syncthreads();
+
+    for (int i = 1; i <= blockDim.x; i++)
+    {
+        for (int shift = 0; shift <= 1; shift++)
+        {
+            int chk = 2 * threadIdx.x - shift;
+            if ((threadIdx.x > 0 || shift != 1) && shr_A[chk] > shr_A[chk + 1])
+            {
+                int temp = shr_A[chk];
+                shr_A[chk] = shr_A[chk + 1];
+                shr_A[chk + 1] = temp;
+            }
+            __syncthreads();
+        }
+    }
+
+    dev_A[(blockIdx.x * blockDim.x + threadIdx.x) * 2] = shr_A[2 * threadIdx.x];
+    dev_A[(blockIdx.x * blockDim.x + threadIdx.x) * 2 + 1] = shr_A[2 * threadIdx.x + 1];
+}
+
+int main()
+{
+    int tolt = N;
+    for (int i = 0; i < N; i++)
+    {
+        A[i] = tolt;
+        tolt--;
+    }
+
+    cudaMemcpyToSymbol(dev_A, A, N * sizeof(int));
+    MultipleBlockSortWithShare <<< BLOCK, BLOCK_SIZE >>> ();
+    cudaMemcpyFromSymbol(A, dev_A, N * sizeof(int));
+
+    for (int i = 0; i < N; i++)
+    {
+        printf("A[%d] = %d\n", i, A[i]);
+    }
+
+    return 0;
 }
 ```
