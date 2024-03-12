@@ -94,6 +94,13 @@ Console-ra kiírás:
 printf("A[%d]=%d\n", i, A[i]);
 ```
 
+## Segéd képletek
+
+Vissza adja a megfelelő tömb indexet:
+```
+int Global_x_component = blockIdx.x * blockDim.x + threadIdx.x
+```
+
 ## GPU-n belüli szorzás kód
 ```
 #include "cuda_runtime.h"
