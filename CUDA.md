@@ -31,6 +31,16 @@ Ezzel lehet a GPU-n létrehozni változót, ami a GPU memória területére jön
 ```
 __device__ int dev_A[5];
 ```
+```
+__device__ float *devPtr;
+__device__ float devPtr[1024];
+```
+
+Ezzel lehet a GPU-n létrehozni konstanst:
+```
+__constant__ float *devPtr;
+__constant__ float devPtr[1024];
+```
 
 Ezzel az előtaggal lehet olyan függvényt létrehozni, amit CPU-n és GPU-n is lehet futtatni.
 ```
@@ -40,6 +50,13 @@ __global__ void fg() { }
 A GPU blokkon belül vannak még memória, ahova át lehet helyezni adatokat, de csak Globális fg-ben lehet rájuk hivatkozni:
 ```
 _shared__ int shr_A[5];
+```
+
+Felszabadítás:
+```
+float *dev_Ptr;
+cudaMalloc((void**)&dev_Ptr, 256 * sizeof(float));
+cudaFree(dev_Ptr);
 ```
 
 ## GPU indexek
@@ -291,3 +308,108 @@ int main()
     return 0;
 }
 ```
+
+Optimalizált mátrix művelet kódja:
+```
+__global__ void MatrixMulGPUTiled(float *devA, float *devB, float *devC) {
+	__shared__ float shr_A[BLOCK_SIZE][BLOCK_SIZE];
+	__shared__ float shr_B[BLOCK_SIZE][BLOCK_SIZE];
+	int indx = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+	int indy = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+	float c = 0;
+	for (int k = 0; k < N / BLOCK_SIZE; k++) {
+		shr_A[threadIdx.y][threadIdx.x] = devA[k * BLOCK_SIZE + threadIdx.x + indy * N];
+		shr_B[threadIdx.y][threadIdx.x] = devB[indx + (k* BLOCK_SIZE + threadIdx.y) * N];
+		__syncthreads();
+		for (int l = 0; l < BLOCK_SIZE; l++) {
+			c += shr_A[threadIdx.y][l] * shr_B[l][threadIdx.x];
+		}
+		__syncthreads();
+	}
+	devC[indx + indy * N] = c;
+}
+```
+
+## Atomi műveletek
+### Összeadás
+Összeadja a régit és az újat, majd vissza adja a régi adatot.
+```
+int atomicAdd(int* address, int val)
+```
+
+### Kivonás
+Kivonja a régiből az újat, majd vissza adja a régi adatot.
+```
+int atomicSub(int* address, int val)
+```
+
+### Növelés
+2. paramétert ha túl lépi, akkor 0 lesz az eredménye és azt adja vissza ami lett.
+```
+unsigned int atomicInc(unsigned int* address, unsigned int val)
+```
+
+### Csökkentés
+2. paramétert ha túl lépi, akkor az lesz az eredménye és azt adja vissza.
+```
+unsigned int atomicInc(unsigned int* address, unsigned int val)
+```
+
+### Min
+Ha az address nagyobb mint a kapott érték, akkor az addresnek az lesz az új értéke és a régi adatot adja vissza.
+```
+int atomicMin(int* address, int val)
+```
+
+### Max
+Ugyan az mint min, csak maxba
+```
+int atomicMax(int* address, int val)
+```
+
+### Csere
+Az address-nek a val lesz az új értéke és vissza adja a régit.
+```
+int atomicExch(int* address, int val)
+```
+
+### Megvizsgálás és csere
+Address az hasonló a compare-rel, akkor megváltozik a val-ra és vissza adja a régi értéket.
+```
+int atomicCAS(int* address, int compare, int val)
+```
+
+### Példa az atomicra, minimum kiválasztás
+```
+__global__ static void MinSearch(int *devA) {
+	__shared__ int localMin[BlockN*2];
+	int blockSize = BlockN;
+	int itemc1 = threadIdx.x * 2;
+	int itemc2 = threadIdx.x * 2 + 1;
+	for(int k = 0; k <= 1; k++) {
+		int blockStart = blockIdx.x * blockDim.x * 4 + k * blockDim.x * 2;
+		int loadIndx = threadIdx.x + blockDim.x * k;
+		if (blockStart + itemc2 < N) {
+			int value1 = devA[blockStart + itemc1];
+			int value2 = devA[blockStart + itemc2];
+			localMin[loadIndx] = value1 < value2 ? value1 : value2;
+		} else
+			if (blockStart + itemc1 < N)
+				localMin[loadIndx] = devA[blockStart + itemc1];
+			else
+				localMin[loadIndx] = devA[0];
+	}
+	__syncthreads();
+	while (blockSize > 0) {
+		int locMin = localMin[itemc1] < localMin[itemc2] ? localMin[itemc1] : localMin[itemc2];
+		__syncthreads();
+		localMin[threadIdx.x] = locMin;
+		__syncthreads();
+		blockSize = blockSize / 2;
+	}
+	if (threadIdx.x == 0) atomicMin(devA, localMin[0]);
+}
+```
+
+## Optimalizálás
+
