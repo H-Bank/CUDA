@@ -413,3 +413,60 @@ __global__ static void MinSearch(int *devA) {
 
 ## Optimalizálás
 
+
+### Mennyi GPU-unk van?
+```
+int deviceCount;
+cudaGetDeviceCount(&deviceCount);
+```
+
+### Hogyan választsuk ki a videó kártyát?
+```
+int deviceNumber = 0;
+cudaSetDevice(deviceNumber);
+```
+
+### GPU adatok lekérdezése
+```
+int deviceNumber = 1;
+cudaDeviceProperty deviceProp;
+cudaGetDeviceProperties(&deviceProp, deviceNumber);
+```
+#### cudaDeviceProperty lekérdezhető adatok
+- name: Name of the device
+- totalGlobalMem: Size of the global memory
+- sharedMemPerBlock: Size of the shared memory per block
+- regsPerBlock: Number of registers per block
+- totalConstMem: Size of the constant memory
+- warpSize: Size of the warps (32)
+- maxThreadsPerBlock: Maximum number of threads by block
+- maxThreadsDim: Maximum dimension of thread blocks
+- maxGridSize: Maximum grid size
+- clockRate: Clock frequency
+- minor, major: Version numbers
+- multiprocessorCount: Number of multiprocessors
+- deviceOverlap: Is the device capable to overlapped read/write
+
+### Kihasználhatatóság
+Occupancy = Active Warps / Maximum Number of Warps. De ez mástól is függ:
+Occupancy is limited by:
+- Max Warps or Max Blocks per Multiprocessor
+- Registers per Multiprocessor
+- Shared memory per Multiprocessor
+Occupancy = Min( register occ., shared mem occ., block size occ.)
+
+```
+cudaSetDevice(0);
+float A[N][N], B[N][N], C[N][N]; float *devA, *devB, *devC;
+cudaMalloc((void**) &devA, sizeof(float) * N * N);
+cudaMalloc((void**) &devB, sizeof(float) * N * N);
+cudaMalloc((void**) &devC, sizeof(float) * N * N);
+cudaMemcpy(devA, A, sizeof(float) * N * N, cudaMemcpyHostToDevice);
+cudaMemcpy(devB, B, sizeof(float) * N * N, cudaMemcpyHostToDevice);
+dim3 grid((N - 1) / BlockN + 1, (N - 1) / BlockN + 1);
+dim3 block(BlockN, BlockN);
+MatrixMul<<<grid, block>>>(devA, devB, devC);
+cudaThreadSynchronize();
+cudaMemcpy(C, devC, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
+cudaFree(devA); cudaFree(devB); cudaFree(devC);
+```
