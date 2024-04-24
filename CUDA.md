@@ -88,6 +88,12 @@ CPU-ról GPU-ra másolni az adatok így lehet:
 ```
 cudaMemcpyToSymbol(dev_A, &A, 5*sizeof(int)); 
 ```
+vagy 
+```
+int* intInGPU = nullptr;
+cudaMalloc(&originalImgInGPU, sizeof(int));
+cudaMemcpy(intInGPU, intValahonnan, sizeof(int), cudaMemcpyHostToDevice);
+```
 1. dev_A a GPU-s változót tartalmazza (memóriában a helyét)
 2. &A a CPU-n az adatot, amit másolunk (lehetne így is: &(A[0]), A)
 3. 5*sizeof(int) mekkora az átmásolt adat mérete
@@ -101,6 +107,10 @@ Ahol az 1-es most a blokkot jelenti, hogy 1 blokkot indítunk és az 5-ös pedig
 GPU-ról CPU-ra vissza másolás:
 ```
 cudaMemcpyFromSymbol(A, dev_A, 5 * sizeof(int));
+```
+vagy
+```
+cudaMemcpy(intValahonnan, intInGPU, sizeof(int), cudaMemcpyDeviceToHost);
 ```
 1. A a CPU-n az adatot, amit másolunk
 2. dev_A a GPU-s változót tartalmazza
