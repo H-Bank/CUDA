@@ -481,7 +481,7 @@ cudaMemcpy(C, devC, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
 cudaFree(devA); cudaFree(devB); cudaFree(devC);
 ```
 
-### blokkok mátrixban futatása.
+### Blokkok mátrixban futatása
 ```
 dim3 blockSize(32, 32);
 dim3 gridSize(2, 2);
