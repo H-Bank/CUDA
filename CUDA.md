@@ -488,3 +488,163 @@ dim3 gridSize(2, 2);
 
 TestingInGPU << <gridSize, blockSize >> > ();
 ```
+
+## 1zh megoldása:
+```
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
+#include <stdio.h>
+
+#define N 6
+#define M 3
+#define K 3
+#define BLOCK_SIZE 3
+#define BLOCK 2
+
+int A[N] = {2,3,4,1,2,5}; //Van
+//int A[N] = {1,1,1,1,1,1}; //Nincs
+int B[M] = { 7,10,9 };
+int VAN = 0;
+
+void versionCPU()
+{
+    int sum;
+    for (int i = 0; i <= N-K; ++i)
+    {
+        sum = 0;
+        for (int j = 0; j < K; j++)
+        {
+            sum += A[i + j];
+        }
+        for (int j = 0; j < M; j++)
+        {
+            if (sum == B[j])
+            {
+                VAN = 1;
+            }
+        }
+    }
+}
+
+__device__ int dev_A[N];
+__device__ int dev_B[N];
+__device__ int dev_VAN;
+
+__global__ void versionOneGPU()
+{
+    int i = threadIdx.x;
+    int sum = 0;
+    for (int j = 0; j < K; j++)
+    {
+        sum += dev_A[i + j];
+    }
+    for (int j = 0; j < M; j++)
+    {
+        if (sum == dev_B[j])
+        {
+            dev_VAN = 1;
+        }
+    }
+}
+
+__global__ void versionXBlockGPU()
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (N - K >= i)
+    {
+        int sum = 0;
+        for (int j = 0; j < K; j++)
+        {
+            sum += dev_A[i + j];
+        }
+        for (int j = 0; j < M; j++)
+        {
+            if (sum == dev_B[j])
+            {
+                dev_VAN = 1;
+            }
+        }
+    }
+}
+
+__global__ void versionSharedMemGPU()
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ int shr_A[N];
+    __shared__ int shr_B[M];
+    for (int j = 0; j < blockDim.x+K-1; j++)
+    {
+        if (i+j<N)
+            shr_A[j] = dev_A[i + j];
+    }
+    for (int j = 0; j < M; j++)
+    {
+        shr_B[j] = dev_B[j];
+    }
+    __syncthreads();
+
+    if (N - K >= i)
+    {
+        int sum = 0;
+        for (int j = 0; j < K; j++)
+        {
+            sum += shr_A[i + j];
+        }
+        for (int j = 0; j < M; j++)
+        {
+            if (sum == shr_B[j])
+            {
+                dev_VAN = 1;
+            }
+        }
+    }
+}
+
+int main()
+{
+    //1. CPU:
+    
+    //versionCPU();
+
+    //2. 1 block GPU:
+
+    /*cudaMemcpyToSymbol(dev_A, A, N * sizeof(int));
+    cudaMemcpyToSymbol(dev_B, B, M * sizeof(int));
+    cudaMemcpyToSymbol(dev_VAN, &VAN, sizeof(int));
+    versionOneGPU <<< 1, N-K >>> ();
+    cudaMemcpyFromSymbol(A, dev_A, N * sizeof(int));
+    cudaMemcpyFromSymbol(B, dev_B, M * sizeof(int));
+    cudaMemcpyFromSymbol(&VAN, dev_VAN, sizeof(int));*/
+
+    //3. N>1024 GPU:
+
+    /*cudaMemcpyToSymbol(dev_A, A, N * sizeof(int));
+    cudaMemcpyToSymbol(dev_B, B, M * sizeof(int));
+    cudaMemcpyToSymbol(dev_VAN, &VAN, sizeof(int));
+    versionXBlockGPU <<< BLOCK, BLOCK_SIZE >>> ();
+    cudaMemcpyFromSymbol(A, dev_A, N * sizeof(int));
+    cudaMemcpyFromSymbol(B, dev_B, M * sizeof(int));
+    cudaMemcpyFromSymbol(&VAN, dev_VAN, sizeof(int));*/
+
+    //4. Shared Mem GPU:
+
+    cudaMemcpyToSymbol(dev_A, A, N * sizeof(int));
+    cudaMemcpyToSymbol(dev_B, B, M * sizeof(int));
+    cudaMemcpyToSymbol(dev_VAN, &VAN, sizeof(int));
+    versionSharedMemGPU << < BLOCK, BLOCK_SIZE >> > ();
+    cudaMemcpyFromSymbol(A, dev_A, N * sizeof(int));
+    cudaMemcpyFromSymbol(B, dev_B, M * sizeof(int));
+    cudaMemcpyFromSymbol(&VAN, dev_VAN, sizeof(int));
+
+
+    if (VAN)
+    {
+        printf("Van benne!");
+    }
+    else
+    {
+        printf("Nincs benne!");
+    }
+}
+```
